@@ -1,0 +1,7 @@
+MIN_DEPTH   MAX_DEPTH   VELOCITY    MAX_DEPTH_CHANGE_MIN    MAX_DEPTH_CHANGE_MAX    VELOCITY_CHANGE
+0.0         3.0         2.5         0                       0                       0.5
+3.0         10.0        3.0         -2                      5                       0.5
+10.0        35.0        3.5         -5                      5                       0.6
+35.0        40.0        3.5         0                       0                       0.6
+40.0        90.0        4.1         0                       0                       0.6
+90.0        120.0       4.2         0                       0                       0.6
