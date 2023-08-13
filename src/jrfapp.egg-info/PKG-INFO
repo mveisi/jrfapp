@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: jrfapp
-Version: 0.0.2
+Version: 0.0.3
 Summary: Joint inversion of Receiver function and Apparant velocity
 Author-email: Mohammad Veisi <m.veisi9687@gmail.com>
 License: MIT License
@@ -25,7 +25,7 @@ License: MIT License
         OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
         SOFTWARE.
         
-Project-URL: Homepage, https://github.com/mveisi/GMPEModified_PSO
+Project-URL: Homepage, https://github.com/mveisi/jrfapp
 Classifier: Development Status :: 3 - Alpha
 Classifier: Operating System :: POSIX :: Linux
 Classifier: License :: OSI Approved :: MIT License
