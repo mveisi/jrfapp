@@ -26,6 +26,7 @@ Please ensure that you have added the binary path of CPS to your .bashrc before 
 <div class="alert alert-block alert-info"> <b>Tip:</b> It is highly recommended to create a conda environment and install the package in this environment. </div>
 
 ## Examples:
-I have included four tutorials on the GitHub page that explain the main usage of the package. 
+I have included four tutorials (toturial1 to 4.ipynb) on the GitHub page that explain the main usage of the package. 
+You can run these tutorials by using jupyter-notebook.
 
 
