@@ -299,7 +299,8 @@ class Invert_thickness_pso:
                        ,rf_method_sens = self.rf_method_sens
                        ,inv_time_rf1 = self.inv_bf, inv_time_rf2 = self.inv_af
                        ,filter_array = 'cal'
-                       ,rf_normalize=self.rf_normalize)
+                       ,rf_normalize=self.rf_normalize
+                       ,saving_directory= os.path.join(os.getcwd(), 'dummy_folder'))
         ftry_forw.cal_sensivity_jacobson(ref = 'vel_s', 
                                          cal_rho_vp=True, plotter= False)
         ftry_forw.cal_jacobian_rf_jacobson()
@@ -642,7 +643,7 @@ class Invert_thickness_pso:
                                           force_jacob_cal = True,
                                           plot_fig = False,
                                           print_out = False, 
-                                          folder_jacob_save = 'other')
+                                          folder_jacob_save = 'current')
         ## for relative obj
         # obj = inv_frame_iter.best_cond_estimate
         ##====

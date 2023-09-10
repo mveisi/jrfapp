@@ -420,7 +420,11 @@ class Invert_joint_iter:
         if (self.folder_jacob_save == 'current'):
             folder = self.save_dir 
         else:
-            folder = '/home/soroush/rf_shallow_codes/my_py_rf/inverse_input/'
+            folder = os.path.join(os.getcwd(), 'dummy_folder_for_inverse')
+        if os.path.isdir(folder):
+            pass
+        else:
+            os.mkdir(folder)
         name = folder + 'jacob_rf.bin'
         file1 = open(name, "wb") 
         pickle.dump(jacob_rf, file1)

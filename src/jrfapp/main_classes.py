@@ -720,7 +720,7 @@ class Jrfapp_station:
     def get_st_obj(self):
         return(self.st_obj)
     def save_file(self, file_name = 'jrfappst.bin'):
-        fl_name = os.path.join(self.init_obj.output_folder, file_name)
+        fl_name = os.path.join(self.st_obj.save_folder, 'jrfapp_st_obj'+file_name)
         file1 = open(fl_name, "wb") 
         pickle.dump(self, file1)
         file1.close()
@@ -959,28 +959,22 @@ class Jrfapp_station:
         self.output_folder_inv = output_folder_inv
         if (load_from_previous == False):
             iter_all_arr = np.arange(self.nmodel)
-            args = zip(iter_all_arr, 
-                       [num_procs] * len(iter_all_arr),
-                       [kind] * len(iter_all_arr),
-                       [self.init_obj] * len(iter_all_arr),
-                       [app_vel_obs] * len(iter_all_arr),
-                       [rf_r_data]* len(iter_all_arr),
-                       [slowness] * len(iter_all_arr), 
-                       [self.ndivide_list]* len(iter_all_arr),
-                       [output_folder_inv]* len(iter_all_arr), 
-                       [vel_param_list] * len(iter_all_arr), 
-                       [False] * len(iter_all_arr))
             file_to_save = os.path.join(output_folder_inv,'grid_search_workplace')
             file_to_save = os.path.join(file_to_save, 'gs_inv_info_list.bin')
-            ##=========================================
-            ## for parallel i saved memory by saving and 
-            ## loading inv_info. 
-            pool = mp.Pool(self.nthread)
-            result = pool.map(_gs_inv_parser, args)
-            gs_inv_info_path_list = []
-            for inv_info_path in result:
-                gs_inv_info_path_list.append(inv_info_path)
-            pool.close()
+            st_obj_dummy_path = os.path.join(output_folder_inv, 'st_obj_dummy.bin')
+            file1 = open(st_obj_dummy_path, "wb") 
+            pickle.dump(self.st_obj, file1)
+            file1.close()
+            del self.st_obj
+            ## for parallel run
+            args = (iter_all_arr, num_procs,
+                       kind, self.init_obj,
+                       app_vel_obs, rf_r_data,
+                       slowness, self.ndivide_list,
+                       output_folder_inv, vel_param_list, 
+                       False)
+            gs_inv_info_path_list = _gs_inv_parser(args)
+            
             gs_inv_info_list = []
             for inv_info_path in gs_inv_info_path_list:
                 with open(inv_info_path, 'rb') as f1:
@@ -988,15 +982,10 @@ class Jrfapp_station:
             file1 = open(file_to_save, "wb") 
             pickle.dump(gs_inv_info_list, file1)
             file1.close()
-            ##=========================================
-            ## for single core run
-            # result = map(_gs_inv_parser, args)
-            # gs_inv_info_list = []
-            # for inv_info in result:
-            #     gs_inv_info_list.append(inv_info) 
-            #     file1 = open(file_to_save, "wb") 
-            #     pickle.dump(gs_inv_info_list, file1)
-            #     file1.close()
+            
+            with open(st_obj_dummy_path, 'rb') as f1:
+                self.st_obj = pickle.load(f1)
+            os.remove(st_obj_dummy_path)
             ##=========================================
             ## for loading from inv_info from indivisual model from a previous run
             ## in case that your run interupted and u want to load that models you
@@ -1400,7 +1389,7 @@ class Jrfapp_station:
         fig.savefig(fl_name, dpi = 250)
         
     def _pso_plotter(self, name = 'PSO_output.png'):
-        
+        label_size = 14
         syn_color = 'aqua'
         layer_info_4_interpolate = copy.deepcopy(self.init_obj.layer_info)
         for el in layer_info_4_interpolate:
@@ -1428,7 +1417,7 @@ class Jrfapp_station:
         
         subfig, ax_subfig = plt.subplots(nrows=1, ncols = 5,
                             gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8]},
-                            figsize=(12, 8))
+                            figsize=(12, 8), tight_layout = True)
         if ('synthetic' in self.stack_name_to_inv):
             v_s_interp_syn = interp_velocity(\
                             lthickness= self.init_obj.synthetic_layer_thickness
@@ -1527,11 +1516,14 @@ class Jrfapp_station:
                           self.init_obj.filt_list,
                                color = 'red',
                                alpha = 0.8, label = 'Interpolated PSO')
+        ax_subfig[0].set_xlabel('S Velocity (km/s)', size = label_size)
+        ax_subfig[0].set_ylabel('Depth (km)', size = label_size)
         ax_subfig[0].set_ylim([0, self.init_obj.max_depth])
         ax_subfig[0].set_ylim(ax_subfig[0].get_ylim()[::-1])
         ax_subfig[0].set_xlim([2, 5.5])
         ax_subfig[0].grid(True)
         ax_subfig[0].set_title('Initial Models')
+        ax_subfig[1].set_xlabel('S Velocity (km/s)', size = label_size)
         ax_subfig[1].set_ylim([0, self.init_obj.max_depth])
         ax_subfig[1].set_ylim(ax_subfig[1].get_ylim()[::-1])
         ax_subfig[1].set_xlim([1.5, 5.5])
@@ -1543,10 +1535,13 @@ class Jrfapp_station:
         ax_subfig[2].set_title('Interpolated\n difference')
         ax_subfig[3].set_ylim([self.init_obj.inv_af, 
                                -self.init_obj.inv_bf])
+        ax_subfig[3].set_ylabel('Time (s)', size = label_size)
         ax_subfig[3].grid(True)
         ax_subfig[3].set_title('Estimated\n RFs')
         ax_subfig[4].set_ylim(ax_subfig[3].get_ylim())
         ax_subfig[4].grid(True)
+        ax_subfig[4].set_ylabel('Filter periods (s)', size = label_size)
+        ax_subfig[4].set_xlabel('Apparent velocity (km/s)', size = label_size)
         ax_subfig[4].set_title('Estimated\n Apparent Velocities')
         ax_subfig[4].legend()
         ax_subfig[0].legend()
@@ -1554,6 +1549,7 @@ class Jrfapp_station:
         fl_name = os.path.join(self.output_folder_inv, name)
         subfig.savefig(fl_name, dpi = 200)
     def _gs_plotter(self, name = 'gs_output.png'):
+        label_size = 14
         time_vec = self.st_obj.time_vec
         fl_to_load = self.gs_inv_info_list_path
         syn_color = 'aqua'
@@ -1629,7 +1625,7 @@ class Jrfapp_station:
         ind_best = np.argwhere(norm_mean == np.min(norm_mean))[0][0]
         subfig, ax_subfig = plt.subplots(nrows=1, ncols = 5,
                             gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8]},
-                            figsize=(12, 8))
+                            figsize=(12, 8), tight_layout = True)
         norm_to_work_d = plot_info['norm'].copy()
         # norm_to_work_d = norm_mean
         sorted_indices = np.argsort(norm_to_work_d)
@@ -1733,12 +1729,14 @@ class Jrfapp_station:
                             alpha = 1.0, lw = 2.4)
             
             
-
+        ax_subfig[0].set_xlabel('S Velocity (km/s)', size = label_size)
+        ax_subfig[0].set_ylabel('Depth (km)', size = label_size)
         ax_subfig[0].set_ylim([0, self.init_obj.max_depth])
         ax_subfig[0].set_ylim(ax_subfig[0].get_ylim()[::-1])
         ax_subfig[0].set_xlim([2, 5.5])
         ax_subfig[0].grid(True)
         ax_subfig[0].set_title('Initial Models')
+        ax_subfig[1].set_xlabel('S Velocity (km/s)', size = label_size)
         ax_subfig[1].set_ylim([0, self.init_obj.max_depth])
         ax_subfig[1].set_ylim(ax_subfig[1].get_ylim()[::-1])
         ax_subfig[1].set_xlim([1.5, 5.5])
@@ -1752,10 +1750,13 @@ class Jrfapp_station:
         else:
             ax_subfig[2].set_title('STD\n')
         
+        ax_subfig[3].set_ylabel('Time (s)', size = label_size)
         ax_subfig[3].set_ylim([self.init_obj.inv_af, 
                                -self.init_obj.inv_bf])
         ax_subfig[3].grid(True)
         ax_subfig[3].set_title('Estimated\n RFs')
+        ax_subfig[4].set_ylabel('Filter periods (s)', size = label_size)
+        ax_subfig[4].set_xlabel('Apparent velocity (km/s)', size = label_size)
         ax_subfig[4].set_ylim(ax_subfig[3].get_ylim())
         ax_subfig[4].grid(True)
         ax_subfig[4].set_title('Estimated\n Apparent Velocities')
@@ -1766,7 +1767,6 @@ class Jrfapp_station:
                                            6)
         subfig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),
                         label='Norm')
-       
         fl_name = os.path.join(self.output_folder_inv, name)
         subfig.savefig(fl_name, dpi = 200)
         return(gs_inv_info_list)
@@ -1968,50 +1968,18 @@ def perturb_vel_4_pkg(lthickness_abs, vel_s, max_pert,
     # print(p3_x)
     
     return(vel_s_perturbed)
+
 #%%
 def _gs_inv_parser(args):
-    (iter_all, num_procs, kind, init_obj, app_vel_to_inv, 
+    (iter_all_arr, num_procs, kind, init_obj, app_vel_to_inv, 
     rf_to_inv ,slowness_stack, ndivide_list, save_dir_root,
     vel_param_list, final_run) = args
     
-    if (final_run):
-        vel_param_best = vel_param_list
-        ndivide_list_accurate = ndivide_list.copy()
-        # new_div = np.max(np.abs(ndivide_list)) + 1
-        # ndivide_list_accurate.append(-new_div)
-        # ndivide_list_accurate.append(new_div)
-        
-        # ndivide_list = ndivide_list_accurate.copy()
-        
-        
-
-        folder_name = os.path.join(save_dir_root,'RGS_pseudo_model_output') 
-        
-        vel_param_run = vel_param_best
-        vel_s_perturbed = vel_param_best.vel_s.copy()
-        layers_thickness = vel_param_best.layer_thickness.copy()
-        layer_thickness_abs = vel_param_best.layer_thickness_abs.copy()
-    else:
-   
-        grid_search_folder = os.path.join(save_dir_root,'grid_search_workplace')
-        
-        if (os.path.isdir(grid_search_folder)):
-            pass 
-        else:
-            os.mkdir(grid_search_folder)
-        
-        
-        
-        cur_run_fl_name = ('Run_model_no_' + "{:03d}".format(iter_all))
-        folder_name = os.path.join(grid_search_folder, cur_run_fl_name)
-        folder_name = folder_name 
-    
-        vel_param_run = vel_param_list[iter_all]
-        vel_s_perturbed = vel_param_list[iter_all].vel_s.copy()
-        layers_thickness = vel_param_list[iter_all].layer_thickness.copy()
-        layer_thickness_abs = vel_param_list[iter_all].layer_thickness_abs.copy()
-        
-        
+    inversion_pre_req = (init_obj.inv_bf, init_obj.inv_af, 
+                         init_obj.dt, init_obj.nsamp, 
+                         init_obj.filt_list, init_obj.app_weight, 
+                         init_obj.rf_weight, init_obj.smooth_fac, 
+                         init_obj.damp_fac, init_obj.gauss_par)
     syn_ind = False
     if ('Synthetic' not in kind):
         syn_ind = False
@@ -2021,44 +1989,152 @@ def _gs_inv_parser(args):
         vel_synth_init = init_obj.synthetic_velocity
         layer_thickness_syn = init_obj.synthetic_layer_thickness
         syn_ind = True
-        
     
-    inv_info= mia.inv_all(app_vel_obs_master =app_vel_to_inv, 
-                              vel_param= vel_param_run, 
-                              rf_obs_master= rf_to_inv, 
-                              slowness_input= slowness_stack,
-                              ndivide_list= ndivide_list, 
-                              stacked = True,
-                              use_app_vel=False, 
-                              name_pso_inp = False, synthetic = syn_ind,  
-                              vel_synth_init= vel_synth_init,
-                              use_pso = False, 
-                              inv_bf = init_obj.inv_bf, 
-                              inv_af = init_obj.inv_af, 
-                              rf_method = 'iterative',
-                              rf_method_sens = 'waterlevel',
-                              dt = init_obj.dt,
-                              layers_thickness_syn = layer_thickness_syn,
-                              nsamp=init_obj.nsamp,
-                              filt_list = init_obj.filt_list,
-                              app_weight = init_obj.app_weight,
-                              rf_weight = init_obj.rf_weight,
-                              smooth_fac = init_obj.smooth_fac,
-                              damp_fac = init_obj.damp_fac,
-                              gauss_par = init_obj.gauss_par,
-                              close_fig = True, 
-                              rf_normalize = 1,
-                              save_dir_root= folder_name)
-    
-    fl_inv_info = folder_name+'/inv_info'+str(iter_all)+'.bin'
-    file1 = open(fl_inv_info, "wb") 
-    pickle.dump(inv_info, file1)
-    file1.close()
     if (final_run):
+        vel_param_best = vel_param_list
+        ndivide_list_accurate = ndivide_list.copy()
+        folder_name = os.path.join(save_dir_root,'RGS_pseudo_model_output') 
+        
+        vel_param_run = vel_param_best
+        vel_s_perturbed = vel_param_best.vel_s.copy()
+        layers_thickness = vel_param_best.layer_thickness.copy()
+        layer_thickness_abs = vel_param_best.layer_thickness_abs.copy()
+        (inv_bf, inv_af, 
+         dt, nsamp, 
+         filt_list, app_weight, 
+         rf_weight, smooth_fac, 
+         damp_fac, gauss_par) = inversion_pre_req
+        inv_info= mia.inv_all(app_vel_obs_master =app_vel_to_inv, 
+                                  vel_param= vel_param_run, 
+                                  rf_obs_master= rf_to_inv, 
+                                  slowness_input= slowness_stack,
+                                  ndivide_list= ndivide_list, 
+                                  stacked = True,
+                                  use_app_vel=False, 
+                                  name_pso_inp = False, synthetic = syn_ind,  
+                                  vel_synth_init= vel_synth_init,
+                                  use_pso = False, 
+                                  inv_bf = inv_bf, 
+                                  inv_af = inv_af, 
+                                  rf_method = 'iterative',
+                                  rf_method_sens = 'waterlevel',
+                                  dt = dt,
+                                  layers_thickness_syn = layer_thickness_syn,
+                                  nsamp= nsamp,
+                                  filt_list = filt_list,
+                                  app_weight = app_weight,
+                                  rf_weight = rf_weight,
+                                  smooth_fac = smooth_fac,
+                                  damp_fac = damp_fac,
+                                  gauss_par = gauss_par,
+                                  close_fig = True, 
+                                  rf_normalize = 1,
+                                  save_dir_root= folder_name)
+        
+        fl_inv_info = os.path.join(folder_name,'inv_info_best_gs.bin')
+        file1 = open(fl_inv_info, "wb") 
+        pickle.dump(inv_info, file1)
+        file1.close()
+        
         return(inv_info)
     else:
+        grid_search_folder = os.path.join(save_dir_root,'grid_search_workplace')
+        if (os.path.isdir(grid_search_folder)):
+            pass 
+        else:
+            os.mkdir(grid_search_folder)
+        ncol = int(len(iter_all_arr) / num_procs)
+        nrow = num_procs
+        iter_all_arr1 = iter_all_arr[:ncol * nrow]
+        iter_all_arr2 = iter_all_arr[ncol * nrow:]
+        iter_all_ar1_reshaped = iter_all_arr1.reshape((nrow, ncol))
+        iter_all_arr_list = []
+        for j in range(ncol):
+            iter_all_arr_list.append(iter_all_ar1_reshaped[:, j])
+        iter_all_arr_list.append(iter_all_arr2)
+        
+        gs_inv_info_path_list = []
+        for iter_all_arr_short in iter_all_arr_list:
+            args = zip(iter_all_arr_short, 
+                       [inversion_pre_req] * len(iter_all_arr_short),
+                       [num_procs] * len(iter_all_arr_short),
+                       [syn_ind] * len(iter_all_arr_short),
+                       [vel_synth_init] * len(iter_all_arr_short),
+                       [layer_thickness_syn] * len(iter_all_arr_short),
+                       [app_vel_to_inv] * len(iter_all_arr_short),
+                       [rf_to_inv]* len(iter_all_arr_short),
+                       [slowness_stack] * len(iter_all_arr_short), 
+                       [ndivide_list]* len(iter_all_arr_short),
+                       [grid_search_folder]* len(iter_all_arr_short), 
+                       [vel_param_list] * len(iter_all_arr_short))
+            
+            
+            pool = mp.Pool(num_procs)
+            # result = map(par_gs, args)
+            result = pool.map(_parallel_gs, args)
+            for el in result:
+                gs_inv_info_path_list.append(el)
+            pool.close()
+        
+        return(gs_inv_info_path_list)
+    
+def _parallel_gs(args):
+        (iter_all, inversion_pre_req,
+               num_procs, syn_ind,
+               vel_synth_init, layer_thickness_syn,
+               app_vel_to_inv, rf_to_inv,
+               slowness_stack, ndivide_list,
+               grid_search_folder, 
+               vel_param_list) = args
+        
+        (inv_bf, inv_af, 
+         dt, nsamp, 
+         filt_list, app_weight, 
+         rf_weight, smooth_fac, 
+         damp_fac, gauss_par) = inversion_pre_req
+        cur_run_fl_name = ('Run_model_no_' + "{:03d}".format(iter_all))
+        folder_name = os.path.join(grid_search_folder, cur_run_fl_name)
+        folder_name = folder_name 
+    
+        vel_param_run = vel_param_list[iter_all]
+        vel_s_perturbed = vel_param_list[iter_all].vel_s.copy()
+        layers_thickness = vel_param_list[iter_all].layer_thickness.copy()
+        layer_thickness_abs = vel_param_list[iter_all].layer_thickness_abs.copy()
+        
+        inv_info= mia.inv_all(app_vel_obs_master =app_vel_to_inv, 
+                                  vel_param= vel_param_run, 
+                                  rf_obs_master= rf_to_inv, 
+                                  slowness_input= slowness_stack,
+                                  ndivide_list= ndivide_list, 
+                                  stacked = True,
+                                  use_app_vel=False, 
+                                  name_pso_inp = False, synthetic = syn_ind,  
+                                  vel_synth_init= vel_synth_init,
+                                  use_pso = False, 
+                                  inv_bf = inv_bf, 
+                                  inv_af = inv_af, 
+                                  rf_method = 'iterative',
+                                  rf_method_sens = 'waterlevel',
+                                  dt = dt,
+                                  layers_thickness_syn = layer_thickness_syn,
+                                  nsamp= nsamp,
+                                  filt_list = filt_list,
+                                  app_weight = app_weight,
+                                  rf_weight = rf_weight,
+                                  smooth_fac = smooth_fac,
+                                  damp_fac = damp_fac,
+                                  gauss_par = gauss_par,
+                                  close_fig = True, 
+                                  rf_normalize = 1,
+                                  save_dir_root= folder_name)
+        
+        fl_inv_info = folder_name+'/inv_info'+str(iter_all)+'.bin'
+        file1 = open(fl_inv_info, "wb") 
+        pickle.dump(inv_info, file1)
+        file1.close()
+        
+        del inv_info
         return(fl_inv_info)
-
 #%%
 class Station_sor_4_pkg:
     def __init__(self, network_name, stname, 
@@ -5058,8 +5134,7 @@ def find_onset_amp(tr, dist_range = (25,95) ,
             tr.stats.P_onset = tr.stats.event_time + arrival_tr[0].time
         find_snr(tr, tr.stats.P_onset)
         tr.trim(tr.stats.P_onset - bf_p, tr.stats.P_onset + af_p- tr.stats.delta)
-    else:
-        
+    else:  
         tr.t_inc_ang = 'Null'
         tr.ray_p_s_to_km = 'Null'
         return(False)
@@ -5091,8 +5166,8 @@ def find_onset_amp(tr, dist_range = (25,95) ,
     
 def find_snr(tr, ref_time, noise= [10,5], 
              signal = [2,20]):
-    tr_n = tr.copy() 
-    tr_s = tr.copy() 
+    tr_n = copy.deepcopy(tr) 
+    tr_s = copy.deepcopy(tr) 
     tr_n.trim(ref_time - noise[0], ref_time - noise[1])
     tr_s.trim(ref_time - signal[0], ref_time + noise[1])
     
@@ -5823,3 +5898,71 @@ def get_model_list(param):
                   '0.5'], ['35.0', '120.0', '4.47', '0', '0', '0.5']]
     return(model)
 
+#%%
+def creat_and_plot_model(init_obj, lthickness, velocity, 
+                         save_dir = '', plotter_ind = False):
+    '''
+    
+
+    Parameters
+    ----------
+    init_obj : TYPE
+        Initial object created by main_classes.Initialize.
+    lthickness : TYPE
+        Layer thickness.
+    velocity : TYPE
+        Shear velocity.
+    save_dir : TYPE, optional
+        Saving directory. The default is ''.
+    plotter_ind : TYPE, optional
+        If True plot the model. The default is False.
+
+    Returns
+    -------
+    None.
+
+    '''
+    if (save_dir == ''):
+        saving_directory =  init_obj.output_folder+'/dummy_st/'
+    else:
+        saving_directory = save_dir
+    if (os.path.isdir(saving_directory)):
+        pass
+    else: 
+        try:
+            os.mkdir(saving_directory)
+        except FileNotFoundError:
+            print('Your input path doesnt exist.')
+            return
+    
+            
+    
+    syn_forw = iv.Forward_cal(vel_s= velocity, 
+                                         layers_thickness = lthickness, 
+                                         filt_list = init_obj.filt_list,
+                                         gauss_par= init_obj.gauss_par,
+                                         dt = init_obj.dt,
+                                         nsamp = init_obj.nsamp, 
+                                         tshift = init_obj.tshift,
+                                         slowness= init_obj.slowness,
+                                         inv_time_rf1 = init_obj.inv_bf, 
+                                         inv_time_rf2 = init_obj.inv_af,
+                                         noise_level =0.0,
+                                         saving_directory = saving_directory)
+
+    
+    
+    lthickness_abs = ut.find_lthickness_abs(lthickness)
+    app_vel = np.array(syn_forw.apparant_vel_org) 
+    rf = np.array(syn_forw.rf_r_from_ind1.copy())
+    time_vec = np.arange(-init_obj.inv_bf, init_obj.inv_af, init_obj.dt)
+    
+    if (plotter_ind):
+        plotter_d(velocity, time_vec, lthickness_abs, 
+              rf, app_vel, init_obj.filt_list, 
+              save_name= os.path.join(init_obj.output_folder, 
+                                      'velocity_model.png'),
+              header = 'Velocity Model')
+    return(rf, time_vec, app_vel, init_obj.filt_list, velocity, 
+           lthickness, lthickness_abs)
+    
