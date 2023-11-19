@@ -6,17 +6,13 @@ Created on Thu Jul 28 20:15:48 2022
 @author: soroush
 """
 
-import inverse_routine as iv 
+from jrfapp import inverse_routine as iv 
 import os
 import pickle
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import cm
-import matplotlib
-import inv_pso_thickness as ipt
+from jrfapp import inv_pso_thickness as ipt
 import copy
-import utils as ut
-# import mpi_inv_pso_thickness as ipt
+from jrfapp import utils as ut
 #%% PSO inversion
 def inv_all(app_vel_obs_master, rf_obs_master, slowness_input,vel_param, 
             filt_list, ndivide_list = [2, 3, 4, 5], 

@@ -1,17 +1,10 @@
 
-
-from rf.deconvolve import deconv_waterlevel, deconv_iterative
-import shutil
-import rftan_classes as rc
-import matplotlib
 import random
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import cm
 import timeit
-import pickle
-import inverse_routine as iv 
+from jrfapp import inverse_routine as iv 
 import multiprocessing as mp
 import utils as ut
 

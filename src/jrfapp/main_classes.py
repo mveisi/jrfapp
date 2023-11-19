@@ -9,9 +9,7 @@ classes we are going to use in our code
 import numpy as np
 import os
 import copy
-from obspy import read, UTCDateTime, Stream
 import obspy as op
-from obspy.io import sac
 import math
 import rf
 from matplotlib.colors import LinearSegmentedColormap
@@ -24,15 +22,15 @@ from PIL import Image
 import PIL
 from rf.deconvolve import deconv_waterlevel, deconv_iterative
 import pickle
-import inverse_routine as iv 
+from jrfapp import inverse_routine as iv 
 import shutil
 from scipy.optimize import curve_fit
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 import multiprocessing as mp
-import main_inv_all as mia
+from jrfapp import main_inv_all as mia
 import timeit
 from matplotlib.colors import ListedColormap, BoundaryNorm
-import utils as ut
+from jrfapp import utils as ut
 # from sklearn.metrics import mean_squared_error
 #creating geom file
 # np.random.seed(155)
@@ -5607,7 +5605,7 @@ def find_onset_amp_strm(strm, dist_range = (25,95), time_utc = False):
         if ('Z' in el.stats.channel):
             tr = el.copy()
     
-    refrence_time = UTCDateTime(year = tr.stats.sac.nzyear,
+    refrence_time = op.UTCDateTime(year = tr.stats.sac.nzyear,
                                 julday = tr.stats.sac.nzjday,
                                 hour= tr.stats.sac.nzhour, 
                                 minute= tr.stats.sac.nzmin,

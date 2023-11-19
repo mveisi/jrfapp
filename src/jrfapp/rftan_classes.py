@@ -8,13 +8,7 @@ Created on Sun Mar 13 17:19:28 2022
 
 import numpy as np
 import os
-from obspy import read, UTCDateTime, Stream
 import obspy as op
-from obspy.io import sac
-import math
-import rf
-from obspy import taup
-import matplotlib.pyplot as plt
 
 #%%
 class Layer_rftan:
