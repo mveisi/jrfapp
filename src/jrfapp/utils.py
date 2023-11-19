@@ -81,6 +81,7 @@ class Vel_paramterize:
             for vs_info in self.vel_info:
                 if ((self.layer_thickness_abs[i] > vs_info[0]) and 
                     (self.layer_thickness_abs[i] <= vs_info[1])):
+                        # print(self.layer_thickness_abs[i], vs_info[0], vs_info[1])
                         vel_s.append(vs_info[2])
             self.vel_s = vel_s.copy()
     def create_vel_s_smooth(self):

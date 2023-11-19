@@ -6,16 +6,16 @@ Created on Thu Jul 28 20:15:48 2022
 @author: soroush
 """
 
-import jrfapp.inverse_routine as iv 
+import inverse_routine as iv 
 import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib
-import jrfapp.inv_pso_thickness as ipt
+import inv_pso_thickness as ipt
 import copy
-import jrfapp.utils as ut
+import utils as ut
 # import mpi_inv_pso_thickness as ipt
 #%% PSO inversion
 def inv_all(app_vel_obs_master, rf_obs_master, slowness_input,vel_param, 
@@ -288,6 +288,7 @@ def inv_all(app_vel_obs_master, rf_obs_master, slowness_input,vel_param,
             iter_vel.append(inv_frame_iter_div.rf_curve_best_curr)
             iter_vel.append(inv_frame_iter_div.app_curve_best_curr)
             iter_vel.append(inv_frame_iter_div.best_lthickness)
+            iter_vel.append(inv_frame_iter_div.norm_all_iter)
             all_iter_vel.append(iter_vel)
             
             all_cond = []

@@ -2,7 +2,7 @@
 
 from rf.deconvolve import deconv_waterlevel, deconv_iterative
 import shutil
-import jrfapp.rftan_classes as rc
+import rftan_classes as rc
 import matplotlib
 import random
 import os
@@ -11,9 +11,9 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import timeit
 import pickle
-import jrfapp.inverse_routine as iv 
+import inverse_routine as iv 
 import multiprocessing as mp
-import jrfapp.utils as ut
+import utils as ut
 
 #%% PSO
 class Invert_thickness_pso:
@@ -365,6 +365,7 @@ class Invert_thickness_pso:
         
         
     def initialize_pso(self):
+        self.objective_particle_all_iter = []
         self.iter_pso = 0 
         self.cal_kappa()
         self.layers_thickness, self.vel_init, self.nlayer, self.init_boundary = \
@@ -416,6 +417,8 @@ class Invert_thickness_pso:
                                                       particles['per_lthickness'], 
                                                       particles['per_boundary'],
                                                       nrun)
+        particles['iter_all_obj'] = []
+        particles['iter_all_obj'].append([boundary, obj])
         particles['per_tthickness'] = tthickness
         
         particles['per_obj_final'] = obj
@@ -445,6 +448,7 @@ class Invert_thickness_pso:
         self.curr_obj_final = np.zeros(shape=(self.pso_nparticle,))
         for i in range(self.pso_nparticle):
             self.curr_obj_final[i] = self.all_particles[i]['curr_obj_final']
+        self.objective_particle_all_iter.append(self.curr_obj_final)
         ind = np.argwhere(self.curr_obj_final == 
                           np.min(self.curr_obj_final))[0][0]
         if (self.iter_pso == 1):
@@ -553,6 +557,7 @@ class Invert_thickness_pso:
                                                       particles['curr_lthickness'], 
                                                       particles['curr_boundary'], 
                                                       nrun)
+        particles['iter_all_obj'].append([boundary, obj])
         
     
         particles['curr_all_t'] = tthickness

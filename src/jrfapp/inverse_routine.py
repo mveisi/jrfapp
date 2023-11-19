@@ -15,7 +15,7 @@ inverse routine for H/v'''
 
 from rf.deconvolve import deconv_waterlevel, deconv_iterative
 import shutil
-import jrfapp.rftan_classes as rc
+import rftan_classes as rc
 import matplotlib
 import random
 import os
@@ -25,7 +25,7 @@ from matplotlib import cm
 import timeit
 import pickle
 import copy
-import jrfapp.utils as ut
+import utils as ut
 #%%
 #iterative ls jacobson
 class Invert_joint_iter:
@@ -1058,7 +1058,7 @@ class Forward_cal:
                  inv_time_rf1 = 5.0, inv_time_rf2 = 25,
                  vel_p = 'cal', rho='cal', 
                  noise_level = 0,
-                 saving_directory='/home/soroush/rf_shallow_codes/my_py_rf/out_fw_tr/',
+                 saving_directory= os.path.join(os.getcwd(), 'outforw'),
                  ):
         self.rf_normalize = rf_normalize
         if (app_vel_obs == 'def'):
@@ -1145,6 +1145,8 @@ class Forward_cal:
             # tr_dum = tr_dum_c.copy()
         if (self.noise_level != 0.0):
             tr_dum = self.add_white_noise(tr_dum)
+        
+        self.tr_dum = copy.deepcopy(tr_dum)
             
         curve_out = App_curve(tr_dum, self.filt_list, nsamp=self.nsamp,
                               dt=self.dt, slowness=self.slowness,

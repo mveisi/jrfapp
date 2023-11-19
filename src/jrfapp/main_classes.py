@@ -24,15 +24,15 @@ from PIL import Image
 import PIL
 from rf.deconvolve import deconv_waterlevel, deconv_iterative
 import pickle
-import jrfapp.inverse_routine as iv 
+import inverse_routine as iv 
 import shutil
 from scipy.optimize import curve_fit
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 import multiprocessing as mp
-import jrfapp.main_inv_all as mia
+import main_inv_all as mia
 import timeit
 from matplotlib.colors import ListedColormap, BoundaryNorm
-import jrfapp.utils as ut
+import utils as ut
 # from sklearn.metrics import mean_squared_error
 #creating geom file
 # np.random.seed(155)
@@ -57,7 +57,9 @@ class Initialize:
                  smooth_fac=1.00, damp_fac=0.5000,
                  kind='synthetic', freq_min_bpfilt=0.05,
                  freq_max_bpfilt=2.5, min_app_vel=1.5,
-                 max_app_vel=5.0, max_depth=70.0, 
+                 max_app_vel=5.0, min_app_vel_last = False, 
+                 increase_cod = False,
+                 max_depth=70.0, 
                  vp_to_vs=1.732, slowness=0.04, 
                  random_seed = None):
         
@@ -179,6 +181,20 @@ class Initialize:
             Maximum value of apparent velocity used in filtering bad RF before
             stacking. 
             The default is 5.00.
+        min_app_vel_last : double, optional
+            Minimum allowed value of the apparent velocity at the last period.
+            This parameter use as the criteria for chosing RFs for stacking. 
+            This is a optional criteria and should be defined accroding to the 
+            minimum expected S-velocity of the bottom layer. 
+            The default value is False. 
+        increase_cod : bool, Optional
+            Another criteria for chosing RFs for stacking. True means that 
+            RFs will be included in the stacking which their apparent velocity 
+            of the last period is greater than the apparent velocity of the 
+            10th previous apparent velocity filter period 
+            (app_vel[-1] > app_vel[-10]). This will remove any RFs which affected
+            by the noise in the corresponding last period. 
+            The default value is False. 
         max_depth : float, optional
             Define the maximum depth of the model. It must be at least 40 km 
             less than the maximum depth defined in the velocity model.
@@ -223,6 +239,8 @@ class Initialize:
         self.freq_min_bpfilt = freq_min_bpfilt
         self.freq_max_bpfilt = freq_max_bpfilt
         self.min_app_vel= min_app_vel
+        self.min_app_vel_last = min_app_vel_last
+        self.increase_cod = increase_cod
         self.max_app_vel= max_app_vel
         self.layering = layering
         self.max_depth = max_depth
@@ -321,6 +339,10 @@ class Initialize:
             os.mkdir(self.output_folder)
     def _read_velocity_model(self):
         model = []
+        if (os.path.isfile(self.model_name)):
+            model_path = self.model_name
+        else:
+            model_path = ''
         if (os.path.isdir(self.model_folder)):
             if (self.model_name == 'iasp91'):
                 model_path = os.path.join(self.model_folder, 'iasp91_model.dat')
@@ -539,17 +561,23 @@ class Initialize:
                                              inv_time_rf1 = self.inv_bf, 
                                              inv_time_rf2 = self.inv_af,
                                              noise_level =0.0,
+                                             rf_normalize= 1,
                                              saving_directory = \
                                                  self.output_folder+'/dummy_st/')
-
         
-        shutil.rmtree(self.output_folder+'/dummy_st/')
+        self.tr_dum = syn_forw.tr_dum
+        
+        # shutil.rmtree(self.output_folder+'/dummy_st/')
             
         app_vel = np.array(syn_forw.apparant_vel_org) 
         rf = np.array(syn_forw.rf_r_from_ind1.copy())
         time_vec = np.arange(-self.inv_bf, self.inv_af, self.dt)
         
+        
+        
         if (model_p == 'initial'):
+            self.rf_initial = copy.deepcopy(rf)
+            self.time_vec_initial = copy.deepcopy(time_vec)
             plotter_d(velocity, time_vec, lthickness_abs, 
                       rf, app_vel, self.filt_list, 
                       save_name= os.path.join(self.output_folder, 
@@ -569,7 +597,8 @@ class Jrfapp_station:
                  save_rf = True,
                  force_load_data=False, 
                  force_load_rf=False,  
-                 close_fig=True):
+                 close_fig=True, 
+                 review_station = False):
         '''
         Parameters
         ----------
@@ -604,7 +633,12 @@ class Jrfapp_station:
             you are creating several station could potentially result in memory. 
             overload. 
             The default is True.
-
+        review_station : TYPE = bool, optional
+            If true the code will create two folder that represent all the 
+            RFR and Vs,app that passes all the criteria for including traces 
+            in the stacking. This is usefull when you want to review a station
+            and look for any inconstancy in the RFs. 
+            
         Returns
         -------
         None.
@@ -618,6 +652,7 @@ class Jrfapp_station:
         self.force_load_data = force_load_data
         self.force_load_rf = force_load_rf
         self.close_fig = close_fig
+        self.review_station = review_station
         
         self._check_st()
         if (self.n_good_event > 2):
@@ -700,11 +735,14 @@ class Jrfapp_station:
                                   freq_max_bpfilt = self.init_obj.freq_max_bpfilt,
                                   max_app_vel= self.init_obj.max_app_vel, 
                                   min_app_vel=self.init_obj.min_app_vel,
+                                  min_app_vel_last= self.init_obj.min_app_vel_last,
+                                  increase_cond = self.init_obj.increase_cod,
                                   save_data = self.save_data,
                                   save_rf = self.save_rf,
                                   force_load_data=self.force_load_data, 
                                   force_load_rf=self.force_load_rf,  
                                   close_fig=True, 
+                                  review_station= self.review_station, 
                                   save_folder=self.init_obj.output_folder + '/')
         self.st_obj = st_obj
     def _real_st_syn(self):
@@ -1210,10 +1248,11 @@ class Jrfapp_station:
             for key in st_obj.stacked_dict.keys():
                 if (self.stack_name_to_inv  == key):
                     stacked_present = True
+                    key_to_inv = key
             
             if (stacked_present == False):
                 raise Exception('Couldnt find '+ self.stack_name_to_inv+'.')
-            kind = key.replace(" ", "__")
+            kind = key_to_inv.replace(" ", "__")
             rf_to_inv  = st_obj.stacked_dict[self.stack_name_to_inv]
             app_vel_obs= rf_to_inv[0].app_vel 
             rf_r_data = rf_to_inv[0].data[:len(st_obj.l_stack[0].data)]
@@ -1415,9 +1454,15 @@ class Jrfapp_station:
         final_norm = inv_info_pso['best_inv'][3] + inv_info_pso['best_inv'][4]
         
         
-        subfig, ax_subfig = plt.subplots(nrows=1, ncols = 5,
-                            gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8]},
-                            figsize=(12, 8), tight_layout = True)
+        subfig, ax_subfig = plt.subplots(nrows=1, ncols = 6,
+                            gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8, 0.8]},
+                            figsize=(18, 10))
+        plt.subplots_adjust(left=0.1,
+                    bottom=0.1, 
+                    right=0.9, 
+                    top=0.9, 
+                    wspace=0.4, 
+                    hspace=0.1)
         if ('synthetic' in self.stack_name_to_inv):
             v_s_interp_syn = interp_velocity(\
                             lthickness= self.init_obj.synthetic_layer_thickness
@@ -1516,6 +1561,42 @@ class Jrfapp_station:
                           self.init_obj.filt_list,
                                color = 'red',
                                alpha = 0.8, label = 'Interpolated PSO')
+        ## adding pso gbest evolution
+        tthickness_path = self.inv_info['name_pso']
+        with open(tthickness_path, 'rb') as f1:
+            tthickness = pickle.load(f1)
+        all_particle = tthickness.all_particles
+
+
+
+        obj_particle_all = np.zeros(shape = (len(all_particle[0]['iter_all_obj']), 
+                                             len(all_particle)))
+        for i, particle in enumerate(all_particle):
+            for j in range(len(particle['iter_all_obj'])):
+                iter_obj =  particle['iter_all_obj'][j]
+                obj_particle_all[j, i] = iter_obj[1]
+        gbest_cond = []
+        gbest_cond.append(tthickness.init_obj_final)
+        best_per_iter = 15.0
+        for i in range(len(obj_particle_all)):
+            best_this_iter = np.min(obj_particle_all[i, :])
+            if (best_this_iter < best_per_iter):
+                gbest_cond.append(best_this_iter)
+                best_per_iter = best_this_iter
+            else:
+                gbest_cond.append(best_per_iter)
+        
+        ax_subfig[5].scatter(gbest_cond, range(len(gbest_cond)), s= 20, c= "blue")
+        ax_subfig[5].plot(gbest_cond, range(len(gbest_cond)), color = "blue")
+        
+        
+        ax_subfig[5].set_ylim([len(gbest_cond), 0])
+        ax_subfig[5].set_xlim([np.min(gbest_cond) - 0.05, gbest_cond[0] + 0.1])
+        ax_subfig[5].grid(True)
+        ax_subfig[5].set_title("Cost function\n evolution", size = label_size)
+        ax_subfig[5].set_xlabel("Cost function", size= label_size)
+        ax_subfig[5].set_ylabel("Iter No", size = label_size)
+        
         ax_subfig[0].set_xlabel('S Velocity (km/s)', size = label_size)
         ax_subfig[0].set_ylabel('Depth (km)', size = label_size)
         ax_subfig[0].set_ylim([0, self.init_obj.max_depth])
@@ -1583,8 +1664,11 @@ class Jrfapp_station:
         plot_info['final_rf'] = []
         plot_info['final_app_vel'] = []
         plot_info['final_vel_interpolate'] = []
+        iter_all_number = len(gs_inv_info_list[0]['best_inv'][8])
+        plot_info['norm_all'] = np.zeros(shape = (iter_all_number, 
+                                                  len(gs_inv_info_list)))
         self.vel_param_list = []
-        for el in gs_inv_info_list:
+        for i, el in enumerate(gs_inv_info_list):
             self.vel_param_list.append(el['vel_param'])
             plot_info['norm'].append(el['best_inv'][3] + 
                                      el['best_inv'][4])
@@ -1602,6 +1686,8 @@ class Jrfapp_station:
                             ,velocity= el['best_inv'][2]
                             ,lthickness_abs_input= lthickness_abs_interpolate)
             plot_info['final_vel_interpolate'].append(v_s_interp)
+            for j, norm in enumerate(el['best_inv'][8]):    
+                plot_info['norm_all'][j, i] = norm[4]
         
         all_vel_interp = np.array(plot_info['final_vel_interpolate'])
         
@@ -1623,18 +1709,30 @@ class Jrfapp_station:
                                             mean_vel))       
         norm_mean = np.array(norm_mean)
         ind_best = np.argwhere(norm_mean == np.min(norm_mean))[0][0]
-        subfig, ax_subfig = plt.subplots(nrows=1, ncols = 5,
-                            gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8]},
-                            figsize=(12, 8), tight_layout = True)
+        subfig, ax_subfig = plt.subplots(nrows=1, ncols = 6,
+                            gridspec_kw={'width_ratios':[1, 1, 0.4, 0.8, 0.8, 0.8]},
+                            figsize=(18, 10))
+        plt.subplots_adjust(left=0.1,
+                    bottom=0.1, 
+                    right=0.9, 
+                    top=0.9, 
+                    wspace=0.4, 
+                    hspace=0.1)
         norm_to_work_d = plot_info['norm'].copy()
         # norm_to_work_d = norm_mean
         sorted_indices = np.argsort(norm_to_work_d)
         norm_to_work = np.sort(norm_to_work_d)
         for key in plot_info.keys():
             dummy_list = plot_info[key].copy()
-            plot_info[key] = []
-            for index in sorted_indices:
-                plot_info[key].append(dummy_list[index])
+            if (key == 'norm_all'):
+                plot_info[key] = np.zeros(shape = (iter_all_number, 
+                                                          len(gs_inv_info_list)))
+                for j, index in enumerate(sorted_indices):
+                    plot_info[key][:, j] = dummy_list[:, index]
+            else:
+                plot_info[key] = []
+                for index in sorted_indices:
+                    plot_info[key].append(dummy_list[index])
         # viridis=cm.get_cmap('rainbow', nmodel)
         norm= matplotlib.colors.BoundaryNorm(norm_to_work, 
                                                 len(norm_to_work))
@@ -1674,6 +1772,14 @@ class Jrfapp_station:
                               self.init_obj.filt_list,
                                    color = cm[i],
                                    alpha = alpha_d[i])
+            ax_subfig[5].scatter(plot_info['norm_all'][:, i], 
+                                 np.arange(1, len(plot_info['norm_all'][:, i]) + 1), 
+                                 s= 20, color= cm[i], alpha = alpha_d[i])
+            ax_subfig[5].plot(plot_info['norm_all'][:, i], 
+                                 np.arange(1, len(plot_info['norm_all'][:, i]) + 1), 
+                                 color = cm[i], 
+                                 alpha = alpha_d[i])
+            
             
             
         if ('synthetic' in self.stack_name_to_inv):
@@ -1745,6 +1851,11 @@ class Jrfapp_station:
         ax_subfig[2].set_ylim([self.init_obj.max_depth, 0])
         ax_subfig[2].set_xticks([0.2, 0.5])
         ax_subfig[2].grid(True)
+        ax_subfig[5].set_ylim([iter_all_number + 1, 1])
+        ax_subfig[5].grid(True)
+        ax_subfig[5].set_title("Objective function\n evolution", size = label_size)
+        ax_subfig[5].set_xlabel("Objective function", size= label_size)
+        ax_subfig[5].set_ylabel("Iter No", size = label_size)
         if ('synthetic' in self.stack_name_to_inv):
             ax_subfig[2].set_title('Mean\n difference')
         else:
@@ -1765,8 +1876,8 @@ class Jrfapp_station:
         rounded_norm_to_work = np.linspace(np.min(rounded_norm_to_work), 
                                            np.max(rounded_norm_to_work), 
                                            6)
-        subfig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),
-                        label='Norm')
+        subfig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm),ax = ax_subfig[5],
+                        label='Objective function')
         fl_name = os.path.join(self.output_folder_inv, name)
         subfig.savefig(fl_name, dpi = 200)
         return(gs_inv_info_list)
@@ -2155,12 +2266,19 @@ class Station_sor_4_pkg:
                  force_load_rf = False, 
                  max_app_vel = 3.0,
                  min_app_vel = 1.4,
+                 min_app_vel_last = False, 
+                 increase_cond = False, 
                  close_fig = True,
+                 review_station= False,
                  save_folder = '/home/soroush/rf_shallow_codes/my_py_rf/real_data_outputs/'):
         # in this part i assign some input to the class
+        self.info_for_save = {}
+        self.review_station = review_station
         self.ndivide_list = ndivide_list
         self.min_app_vel = min_app_vel
         self.max_app_vel = max_app_vel
+        self.min_app_vel_last = min_app_vel_last
+        self.increase_cond = increase_cond
         self.filt_kind = 'cosine'
         self.freq_max_bpfilt = freq_max_bpfilt
         self.freq_min_bpfilt = freq_min_bpfilt
@@ -2189,8 +2307,16 @@ class Station_sor_4_pkg:
         self.harmonic_af_p = 20
         self.model_tp = taup.TauPyModel(model="iasp91")
         self.visual_insp = []
-        
-        
+        if (self.review_station):
+            print('Reviewing station is on, All RFRs and apparant_velocities' + 
+                  ' will be plotted in '+
+                  os.path.join(self.save_folder, 'review_station_rfs') + 
+                  ' and '+ 
+                  os.path.join(self.save_folder, 'review_station_apps')
+                  + ' respectively. ' +
+                  'The runtime will be increased accordingly.')
+            print('==========================================================')
+            print('==========================================================')
         if (os.path.isdir(self.save_folder)):
             if (os.path.isdir(self.save_folder+self.network_name+'_'+
                 self.stname+'/')):
@@ -2244,7 +2370,47 @@ class Station_sor_4_pkg:
             self.plot_rf_app_vel_final()
         self.binn_rf(nbin = 4, kind= 'back_azimuth')
         self.find_app_vel_stack_arr()
-
+        if (force_load_data == False and force_load_rf == False):
+            self.write_info()
+    def write_info(self):
+        info = []
+        dum = 'Network name: '+self.network_name
+        info.append(dum)
+        dum = 'Station name: '+self.stname
+        info.append(dum)
+        dum = 'Number of event folders: '+str(self.info_for_save['N_folder'])
+        info.append(dum)
+        dum = ('Number of imported events: '+
+               str(self.info_for_save['N_imported_events']))
+        info.append(dum)
+        dum = ('Number of preprocessed events: '+
+               str(self.info_for_save['N_imported_events']))
+        info.append(dum)
+        dum = ('Number of calculated RFs: '+
+               str(self.info_for_save['N_RFS_bf_app_vel_criteria']))
+        info.append(dum)
+        dum = ('Number of RFs pass the apparant '+
+               'velocity boundary criteria: '+ 
+               str(self.info_for_save['N_rf_after_app_vel_bf_std']))
+        info.append(dum)
+        dum = ('Number of RFs pass the apparant '+
+               'velocity standard deviation criteria: '+ 
+               str(self.info_for_save['N_rf_after_app_vel_af_std']))
+        info.append(dum)
+        dum = ('List of event folders that cant be imported')
+        info.append(dum)
+        for el in self.info_for_save['bad_events_for_read']:
+            info.append(el)
+        
+        
+        
+        fl_name_ew = 'ST_'+self.stname+'_info.dat'
+        fl_name = os.path.join(self.save_folder, fl_name_ew)
+        file1 = open(fl_name, "w")
+        for el in info:
+            file1.write(el + '\n')
+        file1.close()
+        print('An info file saved in: '+fl_name)
     def create_custom_rf(self, custom_strm, 
                          bf_p = 1, af_p= 20, 
                          max_filt_list = 20):
@@ -2354,20 +2520,174 @@ class Station_sor_4_pkg:
                     tr.rf_std = rf_info[:,1]
                     tr.rf_median = rf_info[:,2]
     def evaluate_app_vel(self):
-
         #in this routine i moved rfs with negative app vel to 
         #trash.
         rf_fixed = []
         rf_trash = []
         for strm_rf in self.all_rf_station:
-            if ((min(strm_rf[1].app_vel) < self.min_app_vel) 
-                or (strm_rf[1].app_vel[-1] > self.max_app_vel)):
-                rf_trash.append(strm_rf)
+            if (self.increase_cond == False):
+                if (self.min_app_vel_last == False):
+                    if ((min(strm_rf[1].app_vel) < self.min_app_vel) 
+                        or (strm_rf[1].app_vel[-1] > self.max_app_vel)):
+                        rf_trash.append(strm_rf)
+                    else:
+                        rf_fixed.append(strm_rf)
+                else:
+                    if ((min(strm_rf[1].app_vel) < self.min_app_vel) 
+                        or (strm_rf[1].app_vel[-1] > self.max_app_vel) or 
+                        (strm_rf[1].app_vel[-1] < self.min_app_vel_last)):
+                        rf_trash.append(strm_rf)
+                    else:
+                        rf_fixed.append(strm_rf)
             else:
-                rf_fixed.append(strm_rf)
+                if (self.min_app_vel_last == False):
+                    if ((min(strm_rf[1].app_vel) < self.min_app_vel) 
+                        or (strm_rf[1].app_vel[-1] > self.max_app_vel) or 
+                        (strm_rf[1].app_vel[-1] < strm_rf[1].app_vel[-10])):
+                        rf_trash.append(strm_rf)
+                    else:
+                        rf_fixed.append(strm_rf)
+                else:
+                    if ((min(strm_rf[1].app_vel) < self.min_app_vel) 
+                        or (strm_rf[1].app_vel[-1] > self.max_app_vel) or 
+                        (strm_rf[1].app_vel[-1] < self.min_app_vel_last) or 
+                        (strm_rf[1].app_vel[-1] < strm_rf[1].app_vel[-10])):
+                        rf_trash.append(strm_rf)
+                    else:
+                        rf_fixed.append(strm_rf)
+                
         self.all_rf_station = [] 
         self.all_rf_station = rf_fixed.copy() 
         self.rf_trash = rf_trash.copy()
+        
+        if (self.review_station):
+            print('From '+ str(len(self.all_rf_station) + len(self.rf_trash)) +
+                  ' calculated RFs, ' + str(len(self.all_rf_station)) + 
+                  ' RFs passed the app_vel boundary criteria')
+            
+            
+            number_of_passed_criteria = len(self.all_rf_station)
+            folder_review = os.path.join(self.save_folder, 'review_station_apps')
+            folder_review_wasnt_fix = os.path.join(folder_review, 'wasnt_good')
+            folder_review_was_fix = os.path.join(folder_review, 'was_good')
+            folders_to_work = [folder_review, folder_review_wasnt_fix,
+                               folder_review_was_fix]
+            for folder in folders_to_work:    
+                if (os.path.isdir(folder)):
+                    pass
+                else:
+                    os.mkdir(folder)
+            
+            ## for fixed
+            for strm_good in self.all_rf_station:
+                rfr = strm_good[1]
+                t_vec = rfr.time_vec
+                app_vel = rfr.app_vel
+                fig, ax = plt.subplots(figsize = (24, 10), 
+                                       nrows = 2, ncols= 1)
+                ax[0].plot(t_vec, rfr.data)
+                ax_0_xtick = np.linspace(-self.bf_p, self.af_p, 
+                                      int(abs(self.bf_p)+abs(self.af_p) + 1))
+                ax[0].set_xticks(ax_0_xtick)
+                ax[0].grid(True)
+                ax_1_xtick = np.linspace(0.0, round(np.max(self.filt_list)), 
+                                      int(round(np.max(self.filt_list) + 1)))
+                ax[1].set_xticks(ax_1_xtick)
+                ax_1_ytick = np.linspace(0.0, self.max_app_vel + 1, 
+                                      (round(self.max_app_vel + 1) * 2)+1)
+                ax[1].set_yticks(ax_1_ytick)
+                ax[1].plot(self.filt_list, app_vel)
+                ax[1].hlines(self.min_app_vel, 
+                             0.0, np.max(self.filt_list),
+                             colors='red', lw = 3.0)
+                ax[1].hlines(self.max_app_vel, 
+                             np.max(self.filt_list) - 1, 
+                             np.max(self.filt_list),
+                             colors='red', lw = 3.0)
+                ax[1].hlines(self.max_app_vel, 
+                             self.filt_list[-6], 
+                             np.max(self.filt_list),
+                             colors='red', lw = 3.0)
+                
+                ax[1].fill_between(self.filt_list, y1 = self.min_app_vel, 
+                                   y2 = np.min(app_vel),
+                                   color = 'red', alpha = 0.4)
+                if (np.max(app_vel) > np.max(ax_1_ytick)):
+                    y2_fill = np.max(app_vel)
+                else:
+                    y2_fill =np.max(ax_1_ytick)
+                ax[1].fill_between(self.filt_list[-6:], y1 = self.max_app_vel,
+                                   y2 = y2_fill,
+                                   color = 'red', alpha = 0.4)
+                
+                ax[1].grid(True)
+                plot_name = os.path.join(folder_review_was_fix, 
+                                         rfr.stats.folder_name[-13:-1])
+                title_of_fig = ('trace : ' + rfr.stats.file_name + ' Baz : '+
+                                str(rfr.stats.back_azimuth) + ' distance : '+
+                                str(rfr.stats.distance))
+                fig.suptitle(title_of_fig)
+                fig.tight_layout()
+                fig.savefig(plot_name + '.png', dpi = 100)
+                plt.clf()
+                plt.cla()
+                plt.close('all')
+                del fig 
+                 
+            ## for not fixed
+            for strm_bad in self.rf_trash:
+                rfr = strm_bad[1]
+                t_vec = rfr.time_vec
+                app_vel = rfr.app_vel
+                fig, ax = plt.subplots(figsize = (24, 10), 
+                                       nrows = 2, ncols= 1)
+                ax[0].plot(t_vec, rfr.data)
+                ax_0_xtick = np.linspace(-self.bf_p, self.af_p, 
+                                      int(abs(self.bf_p)+abs(self.af_p) + 1))
+                ax[0].set_xticks(ax_0_xtick)
+                ax[0].grid(True)
+                ax_1_xtick = np.linspace(0.0, round(np.max(self.filt_list)), 
+                                      int(round(np.max(self.filt_list) + 1)))
+                ax[1].set_xticks(ax_1_xtick)
+                ax[1].set_xticks(ax_1_xtick)
+                ax_1_ytick = np.linspace(0.0, self.max_app_vel + 1, 
+                                      (round(self.max_app_vel + 1) * 2)+1)
+                ax[1].set_yticks(ax_1_ytick)
+                ax[1].plot(self.filt_list, app_vel)
+                ax[1].hlines(self.min_app_vel, 
+                             0.0, np.max(self.filt_list),
+                             colors='red', lw = 3.0)
+                ax[1].hlines(self.max_app_vel, 
+                             self.filt_list[-6], 
+                             np.max(self.filt_list),
+                             colors='red', lw = 3.0)
+                ax[1].fill_between(self.filt_list, y1 = self.min_app_vel, 
+                                   y2 = np.min(app_vel),
+                                   color = 'red', alpha = 0.4)
+                if (np.max(app_vel) > np.max(ax_1_ytick)):
+                    y2_fill = np.max(app_vel)
+                else:
+                    y2_fill =np.max(ax_1_ytick)
+                ax[1].fill_between(self.filt_list[-6:], y1 = self.max_app_vel,
+                                   y2 = y2_fill,
+                                   color = 'red', alpha = 0.4)
+                ax[1].grid(True)
+                plot_name = os.path.join(folder_review_wasnt_fix, 
+                                         rfr.stats.folder_name[-13:-1])
+                title_of_fig = ('trace : ' + rfr.stats.file_name + ' Baz : '+
+                                str(rfr.stats.back_azimuth) + ' distance : '+
+                                str(rfr.stats.distance))
+                fig.suptitle(title_of_fig)
+                fig.tight_layout()
+                fig.savefig(plot_name + '.png', dpi = 100)
+                plt.clf()
+                plt.cla()
+                plt.close('all')
+                del fig 
+                
+                    
+                
+        self.info_for_save['N_rf_after_app_vel_bf_std'] = len(self.all_rf_station)
         mean_vel = np.zeros(shape=(len(self.filt_list),))
         std_vel = np.zeros(shape=(len(self.filt_list),))
         median_vel = np.zeros(shape=(len(self.filt_list),))
@@ -2398,8 +2718,13 @@ class Station_sor_4_pkg:
                 rf_fixed.append(strm_rf)
             else:
                 self.rf_trash.append(strm_rf)
+        if (self.review_station):
+            print('From '+str(number_of_passed_criteria) + ', '+
+                  str(len(rf_fixed)) +
+                  ' are in the 1.5* standard deviation of apparant velocities')
         self.all_rf_station = [] 
         self.all_rf_station = rf_fixed.copy()
+        self.info_for_save['N_rf_after_app_vel_af_std'] = len(self.all_rf_station)
     def find_app_vel(self):
         self.retrive_filters()
         for strm in self.all_rf_station:
@@ -3138,7 +3463,7 @@ class Station_sor_4_pkg:
                                               len(bin_center))
         sm = plt.cm.ScalarMappable(cmap=viridis, norm=norm)
         sm.set_array([])
-        plt.colorbar(sm, ticks=bin_center ,
+        plt.colorbar(sm, ticks=bin_center ,ax= ax_subfig4,
                             label='Back Azimuth')
         if (bf_eval == True):
             # l_stack_harmonic_k0 = self.l_stack_harmonic_k0_bf
@@ -3677,6 +4002,8 @@ class Station_sor_4_pkg:
               self.stname)
         all_rf_station = []
         idum = -1
+        if (self.review_station):
+            print('Number of data is : ' + str(len(self.all_data_station)))
         for strm_zrt in self.all_data_station:
             idum +=1
             # print('calculating RF for '+ strm_zrt[0].stats.folder_name+ 
@@ -3686,12 +4013,16 @@ class Station_sor_4_pkg:
                 all_rf_station.append(strm_rf)
             # for tr in strm_rf:
                 # find_snr(tr, tr.stats.P_onset)
+        if (self.review_station):
+            print('Number of good RFs is : ' + str(len(all_rf_station)))
+        
         self.all_rf_station = all_rf_station
         exmple_tr = self.all_rf_station[0][0]
         self.nsamp = exmple_tr.stats.npts
         self.time_vec = exmple_tr.time_vec.copy()
         self.onset_ind = exmple_tr.onset_ind
-        self.save_rf_for_mrs_farzaneh()
+        self.info_for_save['N_RFS_bf_app_vel_criteria'] = len(self.all_rf_station)
+        # self.save_rf_for_mrs_farzaneh()
         
     def save_rf_for_mrs_farzaneh(self):
         dummy_strm = self.all_rf_station.copy()
@@ -3747,48 +4078,68 @@ class Station_sor_4_pkg:
     
         events_folder = [self.st_folder + f +'/' for f in os.listdir(self.st_folder)
                            if os.path.isdir(os.path.join(self.st_folder, f))]
-        #reading all the ZRT traces from event folders in station folder
+        self.info_for_save['N_folder'] = len(events_folder)
+        #reading all the ZNE traces from event folders in station folder
+        self.info_for_save['bad_events_for_read'] = []
         all_data_station = []
         for event in events_folder:
-            strm_4_rf, is_it_good = self.read_for_rf(event, trace= 'ZNE',
-                                    sample_rate= self.to_dt)
-            if (is_it_good):
-                all_data_station.append(strm_4_rf)
+            try:
+                strm_4_rf, is_it_good = self.read_for_rf(event, trace= 'ZNE',
+                                        sample_rate= self.to_dt)
+                if (is_it_good):
+                    all_data_station.append(strm_4_rf)
+                else:
+                    self.info_for_save['bad_events_for_read'].append(event)
+            except:
+                self.info_for_save['bad_events_for_read'].append(event)
         self.all_data_station = all_data_station
-       
+        self.info_for_save['N_imported_events'] = len(all_data_station)
+        if (self.review_station):
+            print('From '+str(len(events_folder))+' event folders, '+
+                  str(len(all_data_station))+ 
+                  ' events successfully imported for calculations')
     def cut_trace_for_p(self):
         print('preparing files for rf calculation for network = '
-              +self.network_name+' station = '+
+              +self.network_name+', station = '+
               self.stname)
+        if (self.review_station):
+            self.number_of_data_bf_cut_trace = len(self.all_data_station)
         remove_ind = []
         idum = -1
         all_data_station_dum= []
         for strm in self.all_data_station:
             idum += 1
             # print('preparing '+ strm[0].stats.folder_name+ 
-            #        ' for RF calculation')
+            #         ' for RF calculation')
             
             is_it_good_val = 0
             for tr in strm:
                 is_it_good = False
                 tr.resample(sampling_rate= self.to_sample)
                 tr.detrend(type= "demean")
-                is_it_good = find_onset_amp(tr, dist_range = 
+                try:
+                    is_it_good = find_onset_amp(tr, dist_range = 
                                self.dist_range,
                                bf_p= self.bf_p,
                                af_p = self.af_p)
-                
+                except:
+                    continue
                 if (is_it_good):
                     is_it_good_val += 1
-                # print(is_it_good, tr.stats.file_name, is_it_good_val)
+                
             if (is_it_good_val == 3):
                 snr_good = self.check_snr(strm)
                 if (snr_good):
                     all_data_station_dum.append(strm)
                 # all_data_station_dum.append(strm)
                 # print(len(all_data_station_dum))
-        self.all_data_station = [] 
+        self.all_data_station = []
+        if (self.review_station):
+            self.number_of_data_af_cut_trace = len(all_data_station_dum)
+            print('From ' + str(self.number_of_data_bf_cut_trace) + ' trace, ' +
+                  str(self.number_of_data_af_cut_trace) + ' was preprocessed and added to database')
         self.all_data_station = all_data_station_dum.copy()
+        self.info_for_save['N_preprocessed'] = len(self.all_data_station)
           
     def check_snr(self, strm):
         for tr in strm:
@@ -3845,19 +4196,62 @@ class Station_sor_4_pkg:
         dz = dz.real
         dt = out[2] 
         dt = dt.real
-        # plt.figure()
-        # plt.plot(trr.time_vec, dr, label = 'dr')
+        if (self.review_station):
+            fig = plt.figure(figsize=(16,8))
+            plt.plot(trr.time_vec, dr, ls = '--',label = 'dr')
+            plt.plot(trr.time_vec, dz, label = 'dz')
+            plt.vlines(0, ymin = 0, ymax= 1.0, color = 'red')
+            plt.grid(True)
+            plt.legend()
+        
+        (dr_fixed, was_it_fix) = self.check_for_samp_shift(dr, dz, sample_rate)
+        
+        
+        if ((self.review_station == True) and (was_it_fix)):
+            plt.plot(trr.time_vec, dr_fixed, label = 'dr_fixed')
+        if ((self.review_station == True) and (was_it_fix == False)):
+            plt.plot(trr.time_vec, dr_fixed, label = 'dr_not_fixed')
         # plt.plot(trr.time_vec, dz, label = 'dz')
-        # plt.vlines(0, ymin = 0, ymax= 0.4, color = 'red')
-        # plt.grid(True)
-        # plt.legend()
-        
-        
-        (dr_fixed, was_it_fix) = self.check_for_samp_shift(dr, dz)
-        # plt.plot(trr.time_vec, dr_fixed, label = 'dr_fixed')
-        # # plt.plot(trr.time_vec, dz, label = 'dz')
-        # # plt.vlines(0, ymin = 0, ymax= 0.4)
-        # plt.legend()
+        # plt.vlines(0, ymin = 0, ymax= 0.4)
+        if (self.review_station):
+            folder_review = os.path.join(self.save_folder, 'review_station_rfs')
+            folder_review_wasnt_fix = os.path.join(folder_review, 'wasnt_good')
+            folder_review_was_fix = os.path.join(folder_review, 'was_good')
+            folders_to_work = [folder_review, folder_review_wasnt_fix,
+                               folder_review_was_fix]
+            for folder in folders_to_work:    
+                if (os.path.isdir(folder)):
+                    pass
+                else:
+                    os.mkdir(folder)
+                    
+            if (was_it_fix):
+                plt.legend()
+                x_ticks = np.linspace(-self.bf_p, self.af_p, 
+                                      int(abs(self.bf_p)+abs(self.af_p) + 1))
+                plt.xticks(x_ticks)
+                plot_name = os.path.join(folder_review_was_fix, 
+                                         trr.stats.folder_name[-13:-1])
+                title_of_fig = ('trace : ' + trr.stats.file_name + ' Baz : '+
+                                str(tr.stats.back_azimuth) + ' distance : '+
+                                str(tr.stats.distance))
+                plt.title(title_of_fig)
+                plt.tight_layout()
+                plt.savefig(plot_name + '.png', dpi = 100)
+            if (was_it_fix == False):
+                plt.legend()
+                plot_name = os.path.join(folder_review_wasnt_fix, 
+                                         trr.stats.folder_name[-13:-1])
+                title_of_fig = ('trace : ' + trr.stats.file_name + ' Baz : '+
+                                str(tr.stats.back_azimuth) + ' distance : '+
+                                str(tr.stats.distance))
+                plt.title(title_of_fig)
+                plt.tight_layout()
+                plt.savefig(plot_name + '.png', dpi = 100)
+            if (self.close_fig):
+                fig.clf()
+                plt.cla()
+                plt.close(fig)
         rf_z = trz.copy() 
         rf_r = trr.copy() 
         rf_t = trt.copy()
@@ -3892,11 +4286,14 @@ class Station_sor_4_pkg:
     
     
         return(strm_out, was_it_fix)  
-    def check_for_samp_shift(self, dr, dz):
+    def check_for_samp_shift(self, dr, dz, sample_rate, 
+                             time_to_check = 1):
+        
+        n_cut = int(sample_rate * time_to_check)
         is_it_good = False
         onset_ind_z = np.argwhere((dz) == np.max((dz)))[0][0]
-        dz_4_check = dz[0: onset_ind_z + 22]
-        dr_4_check = dr[0: onset_ind_z + 22]
+        dz_4_check = dz[0: onset_ind_z + n_cut + 2]
+        dr_4_check = dr[0: onset_ind_z + n_cut + 2]
         
         ind_z = np.argwhere((dz_4_check) == np.max((dz_4_check)))[0][0]
         ind_r = np.argwhere((dr_4_check) == np.max((dr_4_check)))[0][0]
@@ -3906,21 +4303,19 @@ class Station_sor_4_pkg:
         if (ind_z == ind_r):
             is_it_good = True
             return(dr, is_it_good)
-        elif (abs(ind_z - ind_r) <= 20):
+        elif (abs(ind_z - ind_r) <= n_cut):
             is_it_good = False
             dif_ind = ind_z - ind_r 
             if (dif_ind < 0):
                 for i in range(len(dr)):
-                    if (i - dif_ind <= len(dr) - 1):
+                    if (i - dif_ind <= (len(dr) - 1)):
                         dr_fixed[i] = dr[i-dif_ind]
                     else:
                         dr_fixed[i] = 0.0
-                    # if (i + dif_ind < 0):
-                    #     dr_fixed[i] = 0.0
-            else:
+            else:                
                 for i in range(len(dr)):
-                    if (i+dif_ind < (len(dr) - 1)):
-                        dr_fixed[i] = dr[i+dif_ind]
+                    if (i >= dif_ind):
+                        dr_fixed[i] = dr[i-dif_ind]
                     else:
                         dr_fixed[i] = 0.0
             
@@ -3928,7 +4323,14 @@ class Station_sor_4_pkg:
             
             ind_zero_z = (np.argwhere((dz) ==
                                     np.max((dz)))[0][0])
+            ### if you want to consider rfrs which have maximum
+            ### at times that differ from p-arrival you can 
+            ### change line below to 
+            ### max_dr_fixed = np.max(dr_4_check)
+            
+            
             max_dr_fixed = np.max(dr_fixed)
+            # max_dr_fixed = np.max(dr_4_check)
             normalized_dr_fixed = dr_fixed / max_dr_fixed
             for i in np.arange(0, ind_zero_z):
                 # if (dr_fixed[i] < 0):
@@ -4133,6 +4535,12 @@ class Station_sor_4_pkg:
         for el in sac_files:
             
             tr = op.read(folder_name + el)[0]
+            if (len(tr.data) < 10):
+                if (self.review_station):
+                    print('Encounter problem in reading event in folder '+ 
+                          folder_name + 
+                          ' This event removed from calculations')
+                return('False_strm', False)
             tr.stats.file_name = folder_name + el
             tr.stats.folder_name = folder_name
             tr.stats.kind ='Real_data'
@@ -4203,6 +4611,15 @@ class Station_sor_4_pkg:
                     etime = tr.stats.starttime + tr.stats.sac.t0 + 60
                 
                 tr.trim(starttime = stime, endtime = etime)
+                s_rate = tr.stats.sampling_rate
+                n_data_must_be = (s_rate * 80) + 1
+                if (len(tr.data) != n_data_must_be):
+                    if (self.review_station):
+                        print('The data for event in folder '+ 
+                              folder_name + 
+                              'is not consistence with other data.'+
+                              ' This event removed from calculations')
+                    return('False_strm', False)
                 tr.detrend(type='linear')
                 tr.detrend(type='demean')
                 if (self.freq_max_bpfilt == 'default'):
@@ -5819,14 +6236,17 @@ def fftPlot(sig, dt=None, plot=True, title= None):
         plt.figure(figsize=(16,8))
         plt.plot(freqAxisPos, np.abs(sigFFTPos))
         plt.xlabel(xLabel)
-        plt.xscale("log")
+        # plt.xscale("log")
+        plt.xticks(np.arange(0, 10, 1))
         plt.ylabel('mag')
         plt.grid(True)
         if (title == None):
             plt.title('Analytic FFT plot')
         else:
             plt.title(title)
-        plt.show()
+        # plt.show()
+        plt.tight_layout()
+        plt.savefig(title+'.png', dpi = 300)
 
     return sigFFTPos, freqAxisPos
 
@@ -5948,6 +6368,7 @@ def creat_and_plot_model(init_obj, lthickness, velocity,
                                          inv_time_rf1 = init_obj.inv_bf, 
                                          inv_time_rf2 = init_obj.inv_af,
                                          noise_level =0.0,
+                                         rf_normalize= 0,
                                          saving_directory = saving_directory)
 
     

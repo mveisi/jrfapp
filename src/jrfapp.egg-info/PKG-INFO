@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: jrfapp
-Version: 0.0.52
+Version: 0.0.55
 Summary: Joint inversion of Receiver function and Apparant velocity
 Author-email: Mohammad Veisi <m.veisi9687@gmail.com>
 License: MIT License
@@ -33,6 +33,11 @@ Classifier: Programming Language :: Python :: 3
 Requires-Python: >=3.5
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: obspy
+Requires-Dist: rf
+Requires-Dist: matplotlib
 
 # Jrfapp Package
 ## Introduction:
