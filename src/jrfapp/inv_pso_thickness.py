@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import timeit
 from jrfapp import inverse_routine as iv 
 import multiprocessing as mp
-import utils as ut
+from jrfapp import utils as ut
 
 #%% PSO
 class Invert_thickness_pso:
@@ -191,7 +191,7 @@ class Invert_thickness_pso:
                         g_vel = self.guess_vel_cal(jacob_app_vel, 
                                                 vel_param_fine,  
                                                 layer_thickness_abs_fine[j])
-                        if ((g_vel > 2.0) and (g_vel <= 4.0)):
+                        if ((g_vel > np.min(self.app_obs)) and (g_vel <= np.max(self.app_obs))):
                             g_vel_list.append(g_vel)
                             # print(layer_thickness_abs_fine[j], g_vel)
                 guessed_vel_list.append(np.mean(g_vel_list))
@@ -206,7 +206,7 @@ class Invert_thickness_pso:
             for el in layer_thickness_abs_fine[ind_last_boundary:]:
                 g_vel = self.guess_vel_cal(jacob_app_vel,
                                                      vel_param_fine, el)
-                if ((g_vel > 2.0) and (g_vel <= 5.0)):
+                if ((g_vel > np.min(self.app_obs)) and (g_vel <= np.max(self.app_obs))):
                     g_vel_list.append(g_vel)
                     # print(el, g_vel)
             guessed_vel_list.append(np.max(g_vel_list))

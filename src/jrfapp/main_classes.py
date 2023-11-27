@@ -756,7 +756,12 @@ class Jrfapp_station:
     def get_st_obj(self):
         return(self.st_obj)
     def save_file(self, file_name = 'jrfappst.bin'):
-        fl_name = os.path.join(self.st_obj.save_folder, 'jrfapp_st_obj'+file_name)
+        if (hasattr(self.st_obj, 'save_folder')):
+            fl_name = os.path.join(self.st_obj.save_folder, 
+                           'jrfapp_st_obj'+file_name)
+        else:
+            fl_name = os.path.join(self.st_obj.saving_directory, 
+                           'jrfapp_st_obj'+file_name)
         file1 = open(fl_name, "wb") 
         pickle.dump(self, file1)
         file1.close()
