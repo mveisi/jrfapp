@@ -1,6 +1,7 @@
 # Jrfapp Package
 ## Introduction:
-### The Jrfapp stands for joint inversion of the Receiver Function and apparent velocity data. This is a python package to perform joint inversion of these datasets and outputs an estimated shear velocity model. For more info see "manuscript title".
+### The Jrfapp stands for joint inversion of the Receiver Function and apparent velocity data. This is a python package to perform joint inversion of these datasets and outputs an estimated shear velocity model. 
+For more info see "jrfapp: A Python package for joint inversion of apparent S-wave velocity and receiver function time series".
 
 ## Installation:
 To run this code, you will need the following software and tools:
